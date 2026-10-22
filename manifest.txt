@@ -1,0 +1,21 @@
+{
+  "name": "Sri Kanya Steel • Cement",
+  "short_name": "SKS SO PING",
+  "description": "Field Sales Tracking App for Sri Kanya Steel & Cement",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#F7F8FA",
+  "theme_color": "#1B2A8F",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

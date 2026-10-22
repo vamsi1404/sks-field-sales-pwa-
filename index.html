@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sri Kanya Steel & Cement - Field Sales PWA</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        sksOrange: '#F26B21',
+                        sksNavy: '#1B2A8F',
+                        sksDarkBg: '#0B1033',
+                        sksLightBg: '#F7F8FA'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-sksLightBg text-slate-800 font-sans antialiased">
+    <div id="app" class="max-w-md mx-auto min-h-screen shadow-2xl bg-white flex flex-col">
+        <!-- Splash / Login / Dashboard Rendered dynamically via JS -->
+        <div class="p-6 flex flex-col items-center justify-center flex-1">
+            <div class="w-20 h-20 bg-sksOrange rounded-2xl flex items-center justify-center text-white font-black text-3xl shadow-lg mb-4">
+                SKS
+            </div>
+            <h1 class="text-2xl font-black text-sksNavy tracking-wider">SRI KANYA</h1>
+            <p class="text-xs font-bold text-sksOrange tracking-widest uppercase mt-1">Steel • Cement</p>
+            <p class="text-xs italic text-slate-500 mt-4 tracking-wide">"TRUST OUR SOLIDITY"</p>
+            
+            <button onclick="alert('Launching PWA Dashboard...')" class="mt-8 w-full bg-sksOrange text-white font-bold py-3 px-6 rounded-xl shadow-md hover:bg-orange-600 transition">
+                LAUNCH FIELD APP
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Register Service Worker for PWA Offline Capability
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+                .then(() => console.log('PWA Service Worker Registered Successfully'))
+                .catch((err) => console.log('Service Worker registration failed:', err));
+        }
+    </script>
+</body>
+</html>
