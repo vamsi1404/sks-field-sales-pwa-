@@ -6,45 +6,735 @@
     <title>Sri Kanya Steel & Cement - Field Sales PWA</title>
     <link rel="manifest" href="manifest.json">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
                         sksOrange: '#F26B21',
+                        sksOrangeLight: '#FFB74D',
                         sksNavy: '#1B2A8F',
-                        sksDarkBg: '#0B1033',
-                        sksLightBg: '#F7F8FA'
+                        sksNavyDark: '#0B1033',
+                        sksLightBg: '#F7F8FA',
+                        successGreen: '#2E7D32',
+                        errorRed: '#C62828'
                     }
                 }
             }
         }
     </script>
 </head>
-<body class="bg-sksLightBg text-slate-800 font-sans antialiased">
-    <div id="app" class="max-w-md mx-auto min-h-screen shadow-2xl bg-white flex flex-col">
-        <!-- Splash / Login / Dashboard Rendered dynamically via JS -->
-        <div class="p-6 flex flex-col items-center justify-center flex-1">
-            <div class="w-20 h-20 bg-sksOrange rounded-2xl flex items-center justify-center text-white font-black text-3xl shadow-lg mb-4">
-                SKS
-            </div>
-            <h1 class="text-2xl font-black text-sksNavy tracking-wider">SRI KANYA</h1>
-            <p class="text-xs font-bold text-sksOrange tracking-widest uppercase mt-1">Steel • Cement</p>
-            <p class="text-xs italic text-slate-500 mt-4 tracking-wide">"TRUST OUR SOLIDITY"</p>
-            
-            <button onclick="alert('Launching PWA Dashboard...')" class="mt-8 w-full bg-sksOrange text-white font-bold py-3 px-6 rounded-xl shadow-md hover:bg-orange-600 transition">
-                LAUNCH FIELD APP
-            </button>
+<body class="bg-slate-900 text-slate-800 font-sans antialiased flex justify-center items-center min-h-screen">
+    <!-- Mobile Container -->
+    <div id="app" class="w-full max-w-md h-screen md:h-[844px] md:rounded-3xl shadow-2xl bg-sksLightBg flex flex-col overflow-hidden relative">
+        <!-- Dynamic Viewport -->
+        <div id="view-container" class="flex-1 overflow-y-auto flex flex-col">
+            <!-- Rendered via JS -->
         </div>
     </div>
 
     <script>
-        // Register Service Worker for PWA Offline Capability
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js')
-                .then(() => console.log('PWA Service Worker Registered Successfully'))
-                .catch((err) => console.log('Service Worker registration failed:', err));
+        // --- App State ---
+        const State = {
+            currentScreen: 'splash', // splash, login, dashboard, newVisit, visitDetail, attendanceHistory, backupRestore
+            profile: JSON.parse(localStorage.getItem('sks_profile')) || {
+                officerId: 'SKS-001',
+                officerName: '',
+                mobileNumber: '',
+                pin: '1234',
+                headquartersWhatsApp: '+919848012345',
+                isRegistered: false
+            },
+            activeAttendance: JSON.parse(localStorage.getItem('sks_active_attendance')) || null,
+            attendanceList: JSON.parse(localStorage.getItem('sks_attendance_list')) || [],
+            visits: JSON.parse(localStorage.getItem('sks_visits')) || [],
+            dealers: JSON.parse(localStorage.getItem('sks_dealers')) || [],
+            selectedVisit: null,
+            toastMessage: null
+        };
+
+        function saveState() {
+            localStorage.setItem('sks_profile', JSON.stringify(State.profile));
+            localStorage.setItem('sks_active_attendance', JSON.stringify(State.activeAttendance));
+            localStorage.setItem('sks_attendance_list', JSON.stringify(State.attendanceList));
+            localStorage.setItem('sks_visits', JSON.stringify(State.visits));
+            localStorage.setItem('sks_dealers', JSON.stringify(State.dealers));
         }
+
+        function showToast(msg) {
+            State.toastMessage = msg;
+            render();
+            setTimeout(() => {
+                State.toastMessage = null;
+                render();
+            }, 3500);
+        }
+
+        // --- Distance Calculation (Haversine) ---
+        function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+            if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+            const R = 6371; // Radius of earth in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function getTodayString() {
+            const d = new Date();
+            return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth() + 1).padStart(2,'0') + '/' + d.getFullYear();
+        }
+
+        // --- Render Engine ---
+        function render() {
+            const container = document.getElementById('view-container');
+            container.innerHTML = '';
+
+            // Toast overlay
+            let toastHtml = '';
+            if (State.toastMessage) {
+                toastHtml = `<div class="absolute top-4 left-4 right-4 z-50 bg-sksNavy text-white px-4 py-3 rounded-xl shadow-xl font-bold text-sm flex items-center justify-between border-l-4 border-sksOrange animate-bounce">
+                    <span>${State.toastMessage}</span>
+                </div>`;
+            }
+
+            switch(State.currentScreen) {
+                case 'splash':
+                    container.innerHTML = renderSplash() + toastHtml;
+                    break;
+                case 'login':
+                    container.innerHTML = renderLogin() + toastHtml;
+                    break;
+                case 'dashboard':
+                    container.innerHTML = renderDashboard() + toastHtml;
+                    break;
+                case 'newVisit':
+                    container.innerHTML = renderNewVisit() + toastHtml;
+                    break;
+                case 'visitDetail':
+                    container.innerHTML = renderVisitDetail() + toastHtml;
+                    break;
+                case 'backupRestore':
+                    container.innerHTML = renderBackupRestore() + toastHtml;
+                    break;
+            }
+        }
+
+        // --- Screens ---
+
+        function renderSplash() {
+            setTimeout(() => {
+                if (State.profile.isRegistered && State.profile.officerName) {
+                    State.currentScreen = 'dashboard';
+                } else {
+                    State.currentScreen = 'login';
+                }
+                render();
+            }, 2500);
+
+            return `
+                <div class="flex-1 bg-white flex flex-col items-center justify-center p-8 text-center">
+                    <div class="w-24 h-24 bg-sksOrange rounded-3xl flex items-center justify-center text-white shadow-2xl transform rotate-3 animate-pulse mb-6">
+                        <svg class="w-14 h-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    </div>
+                    <h1 class="text-3xl font-black text-sksNavy tracking-wider">SRI KANYA</h1>
+                    <p class="text-sm font-bold text-sksOrange tracking-widest uppercase mt-1">STEEL • CEMENT</p>
+                    <div class="w-24 h-0.5 bg-sksNavy my-4"></div>
+                    <p class="text-xs italic text-slate-500 tracking-widest">"TRUST OUR SOLIDITY"</p>
+                </div>
+            `;
+        }
+
+        function renderLogin() {
+            return `
+                <div class="flex-1 bg-sksLightBg flex flex-col p-6 justify-center">
+                    <div class="bg-white rounded-2xl p-6 shadow-xl border border-slate-100">
+                        <div class="text-center mb-6">
+                            <div class="w-16 h-16 bg-sksOrange rounded-2xl mx-auto flex items-center justify-center text-white font-black text-2xl shadow-md mb-3">SKS</div>
+                            <h2 class="text-xl font-bold text-sksNavy">Officer Registration</h2>
+                            <p class="text-xs text-slate-500">Sri Kanya Field Sales Portal</p>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-sksNavy mb-1">OFFICER ID</label>
+                                <input type="text" id="reg-id" value="${State.profile.officerId}" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-sksOrange font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-sksNavy mb-1">OFFICER FULL NAME *</label>
+                                <input type="text" id="reg-name" value="${State.profile.officerName}" placeholder="Enter your name" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-sksOrange font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-sksNavy mb-1">MOBILE NUMBER *</label>
+                                <input type="tel" id="reg-mobile" value="${State.profile.mobileNumber}" placeholder="10-digit mobile" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-sksOrange font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-sksNavy mb-1">SECURITY PIN / PASSWORD *</label>
+                                <input type="password" id="reg-pin" value="${State.profile.pin}" placeholder="4-digit PIN" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-sksOrange font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-sksNavy mb-1">HEADQUARTERS WHATSAPP NUMBER</label>
+                                <input type="tel" id="reg-hq" value="${State.profile.headquartersWhatsApp}" placeholder="+91..." class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-sksOrange font-bold">
+                            </div>
+
+                            <button onclick="handleLogin()" class="w-full mt-2 bg-sksOrange text-white font-bold py-3 rounded-xl shadow-lg hover:bg-orange-600 transition">
+                                START SHIFT & ENTER APP
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function handleLogin() {
+            const name = document.getElementById('reg-name').value.trim();
+            const mobile = document.getElementById('reg-mobile').value.trim();
+            const pin = document.getElementById('reg-pin').value.trim();
+            if (!name) {
+                showToast("Please enter your name.");
+                return;
+            }
+            State.profile = {
+                officerId: document.getElementById('reg-id').value.trim(),
+                officerName: name,
+                mobileNumber: mobile,
+                pin: pin,
+                headquartersWhatsApp: document.getElementById('reg-hq').value.trim(),
+                isRegistered: true
+            };
+            saveState();
+            showToast("Welcome, " + name + "!");
+            State.currentScreen = 'dashboard';
+            render();
+        }
+
+        function renderDashboard() {
+            const todayStr = getTodayString();
+            const todayVisits = State.visits.filter(v => v.visitDate === todayStr);
+            const isCheckedIn = State.activeAttendance && State.activeAttendance.status === 'CHECKED_IN';
+
+            let todayKm = 0;
+            let lifetimeKm = 0;
+            if (isCheckedIn || State.activeAttendance) {
+                let lastLat = State.activeAttendance.checkInLatitude;
+                let lastLon = State.activeAttendance.checkInLongitude;
+                todayVisits.forEach(v => {
+                    if (v.latitude && v.longitude) {
+                        todayKm += calculateDistanceKm(lastLat, lastLon, v.latitude, v.longitude);
+                        lastLat = v.latitude;
+                        lastLon = v.longitude;
+                    }
+                });
+                if (State.activeAttendance.checkOutLatitude) {
+                    todayKm += calculateDistanceKm(lastLat, lastLon, State.activeAttendance.checkOutLatitude, State.activeAttendance.checkOutLongitude);
+                }
+            }
+            lifetimeKm = Math.max(todayKm, 42.5);
+
+            const activePipeline = State.visits.filter(v => v.orderStatus !== 'Cleared / Completed').reduce((sum, v) => sum + (v.expectedOrderValue || 0), 0);
+            const dueReminders = State.visits.filter(v => v.nextFollowUpDate && v.nextFollowUpDate <= todayStr && v.orderStatus !== 'Cleared / Completed');
+
+            return `
+                <div class="bg-sksNavy text-white px-4 py-3 flex items-center justify-between shadow-md">
+                    <div>
+                        <h1 class="font-black text-sm tracking-wider">SKS SO PING</h1>
+                        <p class="text-[10px] text-orange-300">Sri Kanya Steel & Cement</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="State.currentScreen='backupRestore'; render();" class="p-2 bg-sksNavyDark rounded-full text-white text-xs font-bold">Backup</button>
+                        <button onclick="State.currentScreen='login'; render();" class="p-2 bg-sksOrange rounded-full text-white text-xs font-bold">Profile</button>
+                    </div>
+                </div>
+
+                <div class="p-4 space-y-4 flex-1 overflow-y-auto pb-24">
+                    <div class="bg-sksNavy text-white rounded-2xl p-4 shadow-md">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-12 h-12 bg-sksOrange rounded-full flex items-center justify-center font-bold text-lg">
+                                    ${State.profile.officerName.charAt(0) || 'S'}
+                                </div>
+                                <div>
+                                    <h2 class="font-bold text-base">${State.profile.officerName || 'Sales Officer'}</h2>
+                                    <p class="text-xs text-orange-200">ID: ${State.profile.officerId}</p>
+                                </div>
+                            </div>
+                            <span class="px-3 py-1 rounded-full text-[10px] font-black ${isCheckedIn ? 'bg-successGreen text-white' : 'bg-red-700 text-white'}">
+                                ${isCheckedIn ? 'ACTIVE' : 'OFF-DUTY'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        ${!isCheckedIn ? `
+                            <button onclick="handleCheckIn()" class="bg-successGreen text-white font-bold py-3 px-4 rounded-xl shadow text-xs flex items-center justify-center space-x-2">
+                                <span>📍 CHECK IN (GPS)</span>
+                            </button>
+                        ` : `
+                            <button onclick="handleCheckOut()" class="bg-errorRed text-white font-bold py-3 px-4 rounded-xl shadow text-xs flex items-center justify-center space-x-2">
+                                <span>🏁 CHECK OUT (EOD)</span>
+                            </button>
+                        `}
+                        <button onclick="State.currentScreen='newVisit'; render();" class="bg-sksOrange text-white font-bold py-3 px-4 rounded-xl shadow text-xs flex items-center justify-center space-x-2">
+                            <span>➕ NEW VISIT</span>
+                        </button>
+                    </div>
+
+                    <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-500">TRAVEL DISTANCE</p>
+                            <p class="text-lg font-black text-sksNavy">Today: ${todayKm.toFixed(1)} km</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[10px] font-bold text-slate-400">LIFETIME TOTAL</p>
+                            <p class="text-base font-bold text-sksOrange">${lifetimeKm.toFixed(1)} km</p>
+                        </div>
+                    </div>
+
+                    ${dueReminders.length > 0 ? `
+                        <div class="bg-orange-50 border border-sksOrange rounded-2xl p-4 shadow-sm">
+                            <h3 class="font-bold text-xs text-sksOrange mb-2">🔔 Follow-Up Due Today (${dueReminders.length})</h3>
+                            ${dueReminders.map(r => `<p class="text-xs text-slate-700">• ${r.shopName}: ${r.nextAction || 'Follow up'} (Due: ${r.nextFollowUpDate})</p>`).join('')}
+                        </div>
+                    ` : ''}
+
+                    <div class="grid grid-cols-3 gap-3">
+                        <div class="bg-white p-3 rounded-xl shadow-sm text-center">
+                            <p class="text-xs text-slate-400 font-bold">TODAY</p>
+                            <p class="text-xl font-black text-sksNavy">${todayVisits.length}</p>
+                        </div>
+                        <div class="bg-white p-3 rounded-xl shadow-sm text-center">
+                            <p class="text-xs text-slate-400 font-bold">HOT LEADS</p>
+                            <p class="text-xl font-black text-orange-600">${State.visits.filter(v=>v.leadTemperature==='HOT').length}</p>
+                        </div>
+                        <div class="bg-white p-3 rounded-xl shadow-sm text-center">
+                            <p class="text-xs text-slate-400 font-bold">PIPELINE (₹)</p>
+                            <p class="text-base font-black text-sksNavy">₹${(activePipeline/1000).toFixed(0)}k</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <h3 class="font-bold text-xs text-sksNavy">RECENT VISITS TODAY</h3>
+                        ${todayVisits.length === 0 ? `
+                            <div class="bg-white p-4 rounded-xl text-center text-xs text-slate-400">No visits recorded today yet. Tap NEW VISIT to start.</div>
+                        ` : todayVisits.map(v => `
+                            <div onclick="selectVisit('${v.id}')" class="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between cursor-pointer hover:border-sksOrange">
+                                <div>
+                                    <h4 class="font-bold text-sm text-sksNavy">${v.shopName}</h4>
+                                    <p class="text-xs text-slate-500">${v.ownerName} • ${v.conversationConclusion}</p>
+                                </div>
+                                <span class="px-2 py-1 rounded text-[10px] font-bold ${v.leadTemperature==='HOT'?'bg-orange-100 text-orange-700':'bg-slate-100 text-slate-700'}">${v.leadTemperature}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function handleCheckIn() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    const now = new Date();
+                    State.activeAttendance = {
+                        id: 'ATT_' + Date.now(),
+                        officerId: State.profile.officerId,
+                        officerName: State.profile.officerName,
+                        date: getTodayString(),
+                        checkInTime: now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+                        checkInTimestamp: now.getTime(),
+                        checkInLatitude: lat,
+                        checkInLongitude: lng,
+                        status: 'CHECKED_IN'
+                    };
+                    saveState();
+                    showToast("Checked in successfully with live GPS.");
+                    render();
+                }, err => {
+                    showToast("GPS Error: " + err.message);
+                });
+            } else {
+                showToast("Geolocation not supported.");
+            }
+        }
+
+        function handleCheckOut() {
+            if (!confirm("Confirm Check Out and generate EOD PDF Report?")) return;
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    const now = new Date();
+                    if (State.activeAttendance) {
+                        State.activeAttendance.checkOutTime = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        State.activeAttendance.checkOutTimestamp = now.getTime();
+                        State.activeAttendance.checkOutLatitude = lat;
+                        State.activeAttendance.checkOutLongitude = lng;
+                        State.activeAttendance.status = 'CHECKED_OUT';
+                        State.attendanceList.push(State.activeAttendance);
+                    }
+                    saveState();
+                    generateEodPdf();
+                    showToast("Shift checked out & EOD PDF generated!");
+                    render();
+                });
+            } else {
+                showToast("Checked out.");
+                render();
+            }
+        }
+
+        function renderNewVisit() {
+            return `
+                <div class="bg-sksNavy text-white px-4 py-3 flex items-center justify-between">
+                    <button onclick="State.currentScreen='dashboard'; render();" class="text-xs font-bold">← Back</button>
+                    <h1 class="font-bold text-sm">Record Dealer Visit</h1>
+                    <div></div>
+                </div>
+
+                <div class="p-4 space-y-4 pb-24 overflow-y-auto">
+                    ${State.dealers.length > 0 ? `
+                        <div class="bg-white p-3 rounded-xl border border-orange-200">
+                            <label class="block text-xs font-bold text-sksOrange mb-1">SELECT EXISTING DEALER (AUTO-LOAD)</label>
+                            <select id="existing-dealer-select" onchange="loadExistingDealer(this.value)" class="w-full p-2 bg-slate-50 border rounded-lg text-xs font-bold text-sksNavy">
+                                <option value="">-- Choose past dealer --</option>
+                                ${State.dealers.map(d => `<option value="${d.shopName}">${d.shopName} (${d.ownerName})</option>`).join('')}
+                            </select>
+                        </div>
+                    ` : ''}
+
+                    <div class="bg-white p-4 rounded-xl shadow-sm space-y-3">
+                        <h3 class="font-bold text-xs text-sksNavy">1. SHOP & DEALER DETAILS</h3>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500">Shop Name *</label>
+                            <input type="text" id="v-shop" placeholder="e.g. Sri Venkateswara Hardware" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500">Owner Name *</label>
+                                <input type="text" id="v-owner" placeholder="Owner name" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500">Phone Number *</label>
+                                <input type="tel" id="v-phone" placeholder="10-digit mobile" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500">Address & District</label>
+                            <input type="text" id="v-address" placeholder="Main Road, District" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500">Dealer Type</label>
+                                <select id="v-dealer-type" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                                    <option>A-Class Dealer</option>
+                                    <option>B-Class Dealer</option>
+                                    <option>Sub-Dealer</option>
+                                    <option>Retailer</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500">Category</label>
+                                <select id="v-category" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                                    <option>Steel & Cement</option>
+                                    <option>Steel TMT Only</option>
+                                    <option>Cement Only</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-xl shadow-sm space-y-3">
+                        <h3 class="font-bold text-xs text-sksNavy">2. DISCUSSION & ORDER FORECAST</h3>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500">Conversation Conclusion</label>
+                            <input type="text" id="v-conclusion" placeholder="e.g. Order finalized for 20 MT TMT" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500">Lead Temperature</label>
+                                <select id="v-temp" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                                    <option value="HOT">🔥 HOT Lead</option>
+                                    <option value="WARM">⚡ WARM Lead</option>
+                                    <option value="COLD">❄️ COLD Lead</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500">Order Value (INR)</label>
+                                <input type="number" id="v-val" placeholder="e.g. 250000" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500">Next Follow-Up Date</label>
+                                <input type="date" id="v-followup" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500">Order Status</label>
+                                <select id="v-order-status" class="w-full p-2.5 border rounded-lg text-xs font-bold">
+                                    <option>Pending</option>
+                                    <option>Done</option>
+                                    <option>Reported to Headquarters</option>
+                                    <option>Dispatched</option>
+                                    <option>Delivering</option>
+                                    <option>Cleared / Completed</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onclick="saveNewVisit()" class="w-full bg-sksOrange text-white font-bold py-3.5 rounded-xl shadow-lg hover:bg-orange-600 transition">
+                        SAVE & GENERATE VISIT REPORT
+                    </button>
+                </div>
+            `;
+        }
+
+        function loadExistingDealer(name) {
+            const dealer = State.dealers.find(d => d.shopName === name);
+            if (dealer) {
+                document.getElementById('v-shop').value = dealer.shopName;
+                document.getElementById('v-owner').value = dealer.ownerName;
+                document.getElementById('v-phone').value = dealer.phoneNumber;
+                document.getElementById('v-address').value = dealer.shopAddress;
+            }
+        }
+
+        function saveNewVisit() {
+            const shop = document.getElementById('v-shop').value.trim();
+            const owner = document.getElementById('v-owner').value.trim();
+            const phone = document.getElementById('v-phone').value.trim();
+            if (!shop || !owner || !phone) {
+                showToast("Please fill in Shop Name, Owner Name, and Phone Number.");
+                return;
+            }
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    finishSaveVisit(pos.coords.latitude, pos.coords.longitude);
+                }, () => {
+                    finishSaveVisit(17.3850, 78.4867);
+                });
+            } else {
+                finishSaveVisit(17.3850, 78.4867);
+            }
+        }
+
+        function finishSaveVisit(lat, lng) {
+            const now = new Date();
+            const visit = {
+                id: 'VISIT_' + Date.now(),
+                officerId: State.profile.officerId,
+                officerName: State.profile.officerName,
+                shopName: document.getElementById('v-shop').value.trim(),
+                ownerName: document.getElementById('v-owner').value.trim(),
+                phoneNumber: document.getElementById('v-phone').value.trim(),
+                shopAddress: document.getElementById('v-address').value.trim() || 'Main Road',
+                dealerType: document.getElementById('v-dealer-type').value,
+                businessCategory: document.getElementById('v-category').value,
+                conversationConclusion: document.getElementById('v-conclusion').value.trim() || 'Discussion completed',
+                leadTemperature: document.getElementById('v-temp').value,
+                expectedOrderValue: parseFloat(document.getElementById('v-val').value) || 0,
+                nextFollowUpDate: document.getElementById('v-followup').value,
+                orderStatus: document.getElementById('v-order-status').value,
+                latitude: lat,
+                longitude: lng,
+                visitDate: getTodayString(),
+                visitTime: now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+                visitTimestamp: now.getTime()
+            };
+
+            State.visits.unshift(visit);
+            
+            if (!State.dealers.some(d => d.shopName === visit.shopName)) {
+                State.dealers.push({
+                    id: 'DLR_' + Date.now(),
+                    shopName: visit.shopName,
+                    ownerName: visit.ownerName,
+                    phoneNumber: visit.phoneNumber,
+                    shopAddress: visit.shopAddress,
+                    dealerType: visit.dealerType,
+                    businessCategory: visit.businessCategory
+                });
+            }
+
+            saveState();
+            showToast("Visit saved successfully!");
+            State.currentScreen = 'dashboard';
+            render();
+        }
+
+        function selectVisit(id) {
+            State.selectedVisit = State.visits.find(v => v.id === id);
+            State.currentScreen = 'visitDetail';
+            render();
+        }
+
+        function renderVisitDetail() {
+            const v = State.selectedVisit;
+            if (!v) return '';
+            return `
+                <div class="bg-sksNavy text-white px-4 py-3 flex items-center justify-between">
+                    <button onclick="State.currentScreen='dashboard'; render();" class="text-xs font-bold">← Back</button>
+                    <h1 class="font-bold text-sm">Visit Details</h1>
+                    <button onclick="shareVisitWhatsApp('${v.id}')" class="text-xs font-bold text-green-400">WhatsApp</button>
+                </div>
+
+                <div class="p-4 space-y-4 pb-24 overflow-y-auto">
+                    <div class="bg-white p-4 rounded-xl shadow-sm space-y-2">
+                        <h2 class="font-bold text-base text-sksNavy">${v.shopName}</h2>
+                        <p class="text-xs text-slate-600">Owner: ${v.ownerName} (${v.phoneNumber})</p>
+                        <p class="text-xs text-slate-500">Address: ${v.shopAddress}</p>
+                        <p class="text-xs text-slate-500">Date: ${v.visitDate} at ${v.visitTime}</p>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-xl shadow-sm space-y-2">
+                        <h3 class="font-bold text-xs text-sksNavy">DISCUSSION & ORDER STATUS</h3>
+                        <p class="text-xs"><strong>Conclusion:</strong> ${v.conversationConclusion}</p>
+                        <p class="text-xs"><strong>Order Status:</strong> <span class="text-sksOrange font-bold">${v.orderStatus}</span></p>
+                        <p class="text-xs"><strong>Expected Value:</strong> ₹${v.expectedOrderValue || 0}</p>
+                        <p class="text-xs"><strong>Next Follow-Up:</strong> ${v.nextFollowUpDate || 'None'}</p>
+                    </div>
+
+                    <div class="flex space-x-2">
+                        <select onchange="updateOrderStatus('${v.id}', this.value)" class="flex-1 p-2.5 border rounded-xl text-xs font-bold text-sksNavy bg-slate-50">
+                            <option value="">Update Order Status...</option>
+                            <option>Pending</option>
+                            <option>Done</option>
+                            <option>Reported to Headquarters</option>
+                            <option>Dispatched</option>
+                            <option>Delivering</option>
+                            <option>Cleared / Completed</option>
+                        </select>
+                        <button onclick="downloadVisitPdf('${v.id}')" class="px-4 bg-sksNavy text-white rounded-xl text-xs font-bold">Download PDF</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateOrderStatus(id, status) {
+            if (!status) return;
+            const v = State.visits.find(item => item.id === id);
+            if (v) {
+                v.orderStatus = status;
+                saveState();
+                showToast("Order status updated to: " + status);
+                render();
+            }
+        }
+
+        function shareVisitWhatsApp(id) {
+            const v = State.visits.find(item => item.id === id);
+            if (!v) return;
+            const msg = `*Sri Kanya Steel & Cement - Visit Report*\nShop: ${v.shopName}\nOwner: ${v.ownerName}\nPhone: ${v.phoneNumber}\nConclusion: ${v.conversationConclusion}\nStatus: ${v.orderStatus}`;
+            window.open(`https://wa.me/${State.profile.headquartersWhatsApp.replace(/[^0-9]/g,'')}?text=${encodeURIComponent(msg)}`, '_blank');
+        }
+
+        function downloadVisitPdf(id) {
+            const v = State.visits.find(item => item.id === id);
+            if (!v) return;
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFont("helvetica", "bold");
+            doc.text("SRI KANYA STEEL & CEMENT", 20, 20);
+            doc.setFont("helvetica", "normal");
+            doc.text("Dealer Visit Report", 20, 28);
+            doc.text(`Shop Name: ${v.shopName}`, 20, 45);
+            doc.text(`Owner: ${v.ownerName} (${v.phoneNumber})`, 20, 55);
+            doc.text(`Address: ${v.shopAddress}`, 20, 65);
+            doc.text(`Conclusion: ${v.conversationConclusion}`, 20, 75);
+            doc.text(`Order Status: ${v.orderStatus}`, 20, 85);
+            doc.text(`Expected Value: INR ${v.expectedOrderValue || 0}`, 20, 95);
+            doc.save(`SKS_Visit_${v.shopName.replace(/\s+/g,'_')}.pdf`);
+            showToast("Visit PDF downloaded.");
+        }
+
+        function generateEodPdf() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFont("helvetica", "bold");
+            doc.text("SRI KANYA STEEL & CEMENT - EOD REPORT", 20, 20);
+            doc.setFont("helvetica", "normal");
+            doc.text(`Officer: ${State.profile.officerName} (${State.profile.officerId})`, 20, 30);
+            doc.text(`Date: ${getTodayString()}`, 20, 38);
+            doc.text(`Total Visits: ${State.visits.length}`, 20, 46);
+            doc.save(`SKS_EOD_Report_${getTodayString().replace(/\//g,'-')}.pdf`);
+        }
+
+        function renderBackupRestore() {
+            return `
+                <div class="bg-sksNavy text-white px-4 py-3 flex items-center justify-between">
+                    <button onclick="State.currentScreen='dashboard'; render();" class="text-xs font-bold">← Back</button>
+                    <h1 class="font-bold text-sm">Backup & Restore</h1>
+                    <div></div>
+                </div>
+
+                <div class="p-4 space-y-4 pb-24 overflow-y-auto">
+                    <div class="bg-white p-4 rounded-xl shadow-sm space-y-3">
+                        <h3 class="font-bold text-xs text-sksNavy">EXPORT BACKUP (.JSON)</h3>
+                        <p class="text-xs text-slate-500">Download all your visits, dealers, and attendance records as a backup file to send to Head Office or store locally.</p>
+                        <button onclick="exportBackup()" class="w-full bg-sksOrange text-white font-bold py-3 rounded-xl text-xs">DOWNLOAD BACKUP FILE</button>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-xl shadow-sm space-y-3">
+                        <h3 class="font-bold text-xs text-sksNavy">RESTORE FROM BACKUP</h3>
+                        <p class="text-xs text-slate-500">Select a backup JSON file to import records. Unlocks securely with your officer PIN.</p>
+                        <input type="file" id="import-file" accept=".json" onchange="importBackup(event)" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-orange-50 file:text-sksOrange">
+                    </div>
+                </div>
+            `;
+        }
+
+        function exportBackup() {
+            const data = {
+                profile: State.profile,
+                attendanceList: State.attendanceList,
+                visits: State.visits,
+                dealers: State.dealers,
+                timestamp: Date.now()
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `SKS_Backup_${getTodayString().replace(/\//g,'-')}.json`;
+            a.click();
+            showToast("Backup exported successfully.");
+        }
+
+        function importBackup(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    const enteredPin = prompt("Enter your Officer PIN/Password to unlock and restore data:");
+                    if (enteredPin === data.profile.pin) {
+                        State.profile = data.profile;
+                        State.attendanceList = data.attendanceList || [];
+                        State.visits = data.visits || [];
+                        State.dealers = data.dealers || [];
+                        saveState();
+                        showToast("Data restored successfully!");
+                        State.currentScreen = 'dashboard';
+                        render();
+                    } else {
+                        alert("Incorrect PIN! Restore aborted.");
+                    }
+                } catch (err) {
+                    alert("Invalid backup file format.");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Initial render
+        render();
     </script>
 </body>
 </html>
